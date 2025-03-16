@@ -129,7 +129,7 @@ def parse_args(args):
     parser.add_argument(
         "--logs",
         type=str,
-        default="./logs/",
+        default="/lpai/output/models/test",
         help="Where to store tensorboard logs. Use None to avoid storing logs.",
     )
     parser.add_argument(
@@ -316,6 +316,22 @@ def parse_args(args):
     )
     parser.add_argument(
         "--accum-freq", type=int, default=1, help="Update the model every --acum-freq steps."
+    )
+    parser.add_argument(
+        "--device", default="cuda", type=str, help="Accelerator to use."
+    )
+    # arguments for distributed training
+    parser.add_argument(
+        "--dist-url",
+        default=None,
+        type=str,
+        help="url used to set up distributed training",
+    )
+    parser.add_argument(
+        "--dist-backend",
+        default=None,
+        type=str,
+        help="distributed backend. \"nccl\" for GPU, \"hccl\" for Ascend NPU"
     )
     parser.add_argument(
         "--report-to",

@@ -20,48 +20,97 @@ except ImportError:
 def gather_features(
         image_features,
         text_features,
+        semantic_features=None,
         local_loss=False,
         gather_with_grad=False,
         rank=0,
         world_size=1,
         use_horovod=False
-):
-    assert has_distributed, 'torch.distributed did not import correctly, please use a PyTorch version with support.'
-    if use_horovod:
-        assert hvd is not None, 'Please install horovod'
-        if gather_with_grad:
-            all_image_features = hvd.allgather(image_features)
-            all_text_features = hvd.allgather(text_features)
-        else:
-            with torch.no_grad():
+):  
+    if semantic_features is not None:
+        assert has_distributed, 'torch.distributed did not import correctly, please use a PyTorch version with support.'
+        if use_horovod:
+            assert hvd is not None, 'Please install horovod'
+            if gather_with_grad:
                 all_image_features = hvd.allgather(image_features)
                 all_text_features = hvd.allgather(text_features)
-            if not local_loss:
-                # ensure grads for local rank when all_* features don't have a gradient
-                gathered_image_features = list(all_image_features.chunk(world_size, dim=0))
-                gathered_text_features = list(all_text_features.chunk(world_size, dim=0))
-                gathered_image_features[rank] = image_features
-                gathered_text_features[rank] = text_features
+                all_semantic_features = hvd.allgather(semantic_features)
+            else:
+                with torch.no_grad():
+                    all_image_features = hvd.allgather(image_features)
+                    all_text_features = hvd.allgather(text_features)
+                    all_semantic_features = hvd.allgather(semantic_features)
+                if not local_loss:
+                    # ensure grads for local rank when all_* features don't have a gradient
+                    gathered_image_features = list(all_image_features.chunk(world_size, dim=0))
+                    gathered_text_features = list(all_text_features.chunk(world_size, dim=0))
+                    gathered_semantic_features = list(all_semantic_features.chunk(world_size, dim=0))
+                    gathered_image_features[rank] = image_features
+                    gathered_text_features[rank] = text_features
+                    gathered_semantic_features[rank] = semantic_features
+                    all_image_features = torch.cat(gathered_image_features, dim=0)
+                    all_text_features = torch.cat(gathered_text_features, dim=0)
+                    all_semantic_features = torch.cat(gathered_semantic_features, dim=0)
+        else:
+            # We gather tensors from all gpus
+            if gather_with_grad:
+                all_image_features = torch.cat(torch.distributed.nn.all_gather(image_features), dim=0)
+                all_text_features = torch.cat(torch.distributed.nn.all_gather(text_features), dim=0)
+                all_semantic_features = torch.cat(torch.distributed.nn.all_gather(semantic_features), dim=0)
+            else:
+                gathered_image_features = [torch.zeros_like(image_features) for _ in range(world_size)]
+                gathered_text_features = [torch.zeros_like(text_features) for _ in range(world_size)]
+                gathered_semantic_features = [torch.zeros_like(semantic_features) for _ in range(world_size)]
+                dist.all_gather(gathered_image_features, image_features)
+                dist.all_gather(gathered_text_features, text_features)
+                dist.all_gather(gathered_semantic_features, semantic_features)
+                if not local_loss:
+                    # ensure grads for local rank when all_* features don't have a gradient
+                    gathered_image_features[rank] = image_features
+                    gathered_text_features[rank] = text_features
+                    gathered_semantic_features[rank] = semantic_features
                 all_image_features = torch.cat(gathered_image_features, dim=0)
                 all_text_features = torch.cat(gathered_text_features, dim=0)
-    else:
-        # We gather tensors from all gpus
-        if gather_with_grad:
-            all_image_features = torch.cat(torch.distributed.nn.all_gather(image_features), dim=0)
-            all_text_features = torch.cat(torch.distributed.nn.all_gather(text_features), dim=0)
-        else:
-            gathered_image_features = [torch.zeros_like(image_features) for _ in range(world_size)]
-            gathered_text_features = [torch.zeros_like(text_features) for _ in range(world_size)]
-            dist.all_gather(gathered_image_features, image_features)
-            dist.all_gather(gathered_text_features, text_features)
-            if not local_loss:
-                # ensure grads for local rank when all_* features don't have a gradient
-                gathered_image_features[rank] = image_features
-                gathered_text_features[rank] = text_features
-            all_image_features = torch.cat(gathered_image_features, dim=0)
-            all_text_features = torch.cat(gathered_text_features, dim=0)
+                all_semantic_features = torch.cat(gathered_semantic_features, dim=0)
 
-    return all_image_features, all_text_features
+        return all_image_features, all_text_features, all_semantic_features
+    else:
+        assert has_distributed, 'torch.distributed did not import correctly, please use a PyTorch version with support.'
+        if use_horovod:
+            assert hvd is not None, 'Please install horovod'
+            if gather_with_grad:
+                all_image_features = hvd.allgather(image_features)
+                all_text_features = hvd.allgather(text_features)
+            else:
+                with torch.no_grad():
+                    all_image_features = hvd.allgather(image_features)
+                    all_text_features = hvd.allgather(text_features)
+                if not local_loss:
+                    # ensure grads for local rank when all_* features don't have a gradient
+                    gathered_image_features = list(all_image_features.chunk(world_size, dim=0))
+                    gathered_text_features = list(all_text_features.chunk(world_size, dim=0))
+                    gathered_image_features[rank] = image_features
+                    gathered_text_features[rank] = text_features
+                    all_image_features = torch.cat(gathered_image_features, dim=0)
+                    all_text_features = torch.cat(gathered_text_features, dim=0)
+        else:
+            # We gather tensors from all gpus
+            if gather_with_grad:
+                all_image_features = torch.cat(torch.distributed.nn.all_gather(image_features), dim=0)
+                all_text_features = torch.cat(torch.distributed.nn.all_gather(text_features), dim=0)
+            else:
+                gathered_image_features = [torch.zeros_like(image_features) for _ in range(world_size)]
+                gathered_text_features = [torch.zeros_like(text_features) for _ in range(world_size)]
+                dist.all_gather(gathered_image_features, image_features)
+                dist.all_gather(gathered_text_features, text_features)
+                if not local_loss:
+                    # ensure grads for local rank when all_* features don't have a gradient
+                    gathered_image_features[rank] = image_features
+                    gathered_text_features[rank] = text_features
+                all_image_features = torch.cat(gathered_image_features, dim=0)
+                all_text_features = torch.cat(gathered_text_features, dim=0)
+
+        return all_image_features, all_text_features
 
 
 class ClipLoss(nn.Module):
@@ -181,10 +230,10 @@ class ClipInModalityLoss(nn.Module):
             labels = self.labels[device]
         return labels
 
-    def get_logits(self, image_features, text_features, logit_scale):
+    def get_logits(self, image_features, text_features, logit_scale, semantic_features):
         if self.world_size > 1:
-            all_image_features, all_text_features = gather_features(
-                image_features, text_features,
+            all_image_features, all_text_features, all_semantic_features = gather_features(
+                image_features, text_features, semantic_features,
                 self.local_loss, self.gather_with_grad, self.rank, self.world_size, self.use_horovod)
 
             if self.local_loss:
@@ -216,11 +265,11 @@ class ClipInModalityLoss(nn.Module):
             logscale_logits_text_image = logit_scale * text_features @ image_features.T
         
         
-        return logits_per_image, logits_per_text, logits_image_text, logscale_logits_image_text, logscale_logits_text_image
+        return logits_per_image, logits_per_text, logits_image_text, logscale_logits_image_text, logscale_logits_text_image, all_semantic_features
 
     def forward(self, image_features, text_features, logit_scale, output_dict=False, semantic_features=None):
         device = image_features.device
-        logits_per_image, logits_per_text, logits_image_text, logscale_logits_image_text, logscale_logits_text_image = self.get_logits(image_features, text_features, logit_scale)
+        logits_per_image, logits_per_text, logits_image_text, logscale_logits_image_text, logscale_logits_text_image, semantic_features = self.get_logits(image_features, text_features, logit_scale, semantic_features)
 
         labels = self.get_ground_truth(device, logits_per_image.shape[0])
 

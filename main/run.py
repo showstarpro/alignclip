@@ -401,7 +401,7 @@ def main(args):
 
 
     for epoch in range(start_epoch, args.epochs):
-        loss = create_loss(args, epoch)
+        loss = create_loss(args)
         if is_master(args):
             logging.info(f'Start epoch {epoch}')
 
